@@ -2,13 +2,12 @@ use std::{fmt::Display, ptr};
 
 use crate::vector::Vector;
 
-const COLLISION_RADIUS: f32 = 0.0;
-
 #[derive(Debug, Clone)]
 pub struct Body {
     pub position: Vector<2>,
     pub velocity: Vector<2>,
     pub mass: f32,
+    pub radius: f32,
 }
 
 impl Default for Body {
@@ -17,6 +16,7 @@ impl Default for Body {
             position: Default::default(),
             velocity: Default::default(),
             mass: 1.0,
+            radius: 0.05,
         }
     }
 }
@@ -49,8 +49,7 @@ pub struct Environment {
 }
 
 impl Environment {
-    pub fn sim_step(&mut self, delta_time: f32) {
-
+    pub fn sim_step(&mut self, delta_time: f32) -> Vec<Vector<2>> {
         // gravitation
         let accelerations: Vec<_> = self
             .bodies
@@ -64,32 +63,46 @@ impl Environment {
         }
 
         // collision (thanks gpt)
-        let collisions: Vec<_> = (0..self.bodies.len()).flat_map(|i| {
-            ((i+1)..self.bodies.len()).filter_map(|j| {
-                let (a, b) = (&self.bodies[i], &self.bodies[j]);
-                ((a.position - b.position).len() < COLLISION_RADIUS).then_some((i, j))
-            }).collect::<Vec<_>>()
-        }).collect();
+        let collisions: Vec<_> = (0..self.bodies.len())
+            .flat_map(|i| {
+                ((i + 1)..self.bodies.len())
+                    .filter_map(|j| {
+                        let a = &self.bodies[i];
+                        let b = &self.bodies[j];
+                        ((a.position - b.position).len() < a.radius + b.radius).then_some((i, j))
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect();
 
+        let mut collision_points = Vec::new();
         for (i, j) in collisions {
-            // println!("{i}, {j}");
             let (a, b) = self.bodies.split_at_mut(j);
             let (a, b) = (&mut a[i], &mut b[0]);
 
-            let normal = (a.position - b.position).normalized();
+            let delta = a.position - b.position;
+            let normal = delta.normalized();
 
             let relative_velocity = a.velocity - b.velocity;
             let velocity_along_normal = relative_velocity.dot(normal);
 
             if velocity_along_normal <= 0. {
                 let restitution = 1.0;
-                let impulse_magnitude = -(1.0 + restitution) * velocity_along_normal / (1.0 / a.mass + 1.0 / b.mass);
-    
+                let impulse_magnitude =
+                    -(1.0 + restitution) * velocity_along_normal / (1.0 / a.mass + 1.0 / b.mass);
+
                 let impulse = normal * impulse_magnitude;
-                a.velocity -= impulse / a.mass;
-                b.velocity += impulse / b.mass;
+                a.velocity += impulse / a.mass;
+                b.velocity -= impulse / b.mass;
             }
+
+            let collision_point = delta * (b.radius / (a.radius + b.radius)) + b.position;
+            a.position = collision_point + normal * a.radius;
+            b.position = collision_point - normal * b.radius;
+            collision_points.push(collision_point);
         }
+        
+        collision_points
     }
 }
 
