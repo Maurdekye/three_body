@@ -1,6 +1,6 @@
 use std::{fmt::Display, ptr};
 
-use crate::vector::Vector;
+use crate::{vector::Vector, DEFAULT_RADIUS};
 
 #[derive(Debug, Clone)]
 pub struct Body {
@@ -16,7 +16,7 @@ impl Default for Body {
             position: Default::default(),
             velocity: Default::default(),
             mass: 1.0,
-            radius: 0.05,
+            radius: DEFAULT_RADIUS,
         }
     }
 }
