@@ -4,6 +4,8 @@ use std::{
     ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign},
 };
 
+use ggez::mint::Vector2;
+
 #[derive(Clone, Debug, Copy, PartialEq)]
 pub struct Vector<const D: usize>([f32; D]);
 
@@ -165,5 +167,14 @@ impl<const D: usize> Default for Vector<D> {
 impl<const D: usize> Sum for Vector<D> {
     fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
         iter.reduce(|a, b| a + b).unwrap_or_default()
+    }
+}
+
+impl Into<Vector2<f32>> for Vector<2> {
+    fn into(self) -> Vector2<f32> {
+        Vector2 {
+            x: self.0[0],
+            y: self.0[1],
+        }
     }
 }
