@@ -2,11 +2,12 @@ use ggez::{
     conf::WindowMode,
     event::{self, EventHandler},
     graphics::{self, Color, DrawParam, Mesh, MeshBuilder},
+    input::keyboard::KeyCode,
     mint::Vector2,
     Context, ContextBuilder, GameResult,
 };
 use sim::{Body, Environment};
-use vector::vec2;
+use vector::{vec2, Vector};
 
 mod sim;
 mod vector;
@@ -22,27 +23,22 @@ struct State {
 }
 
 impl State {
-
     pub fn init_env() -> Environment {
-        // Environment {
-        //     bodies: vec![
-        //         // Body::new(vec2(1., 0.9)),
-        //         Body::new(vec2(0.4, 0.5)),
-        //         Body::new(vec2(0.6, 0.5)),
-        //         Body::new(vec2(0.5, 0.6)),
-        //     ],
-        // }
-        Environment {
-            bodies: (0..NUM_BODIES).map(|_| {
-            let radius = rand::random::<f32>().powi(2) * 0.001 + 0.004;
-            let mass = radius.powi(2);
-            Body {
-                position: vec2(rand::random(), rand::random()),
-                radius,
-                mass,
-                ..Default::default()
-            }}).collect()
-        }
+        // Environment::new(
+        //     (0..NUM_BODIES)
+        //         .map(|_| {
+        //             let radius = rand::random::<f32>().powi(2) * 0.001 + 0.004;
+        //             let mass = radius.powi(2);
+        //             Body {
+        //                 position: vec2(rand::random(), rand::random()),
+        //                 radius,
+        //                 mass,
+        //                 ..Default::default()
+        //             }
+        //         })
+        //         .collect(),
+        // )
+        Environment::new(Vec::new())
     }
 
     pub fn new(_ctx: &mut Context) -> GameResult<State> {
@@ -50,29 +46,87 @@ impl State {
             environment: State::init_env(),
         })
     }
+
+    fn get_scale_factor(&self, ctx: &Context) -> f32 {
+        let (w, h) = ctx.gfx.drawable_size();
+        w.min(h)
+    }
+
+    fn get_screen_point(&self, ctx: &Context, mut point: Vector<2>) -> Vector2<f32> {
+        let scale_factor = self.get_scale_factor(ctx);
+        point *= scale_factor;
+        point.into()
+    }
+
+    fn get_sim_point(&self, ctx: &Context, point: Vector2<f32>) -> Vector<2> {
+        let scale_factor = self.get_scale_factor(ctx);
+        let point: Vector<2> = point.into();
+        point / scale_factor
+    }
 }
+
+const NUMBER_KEYS: [KeyCode; 10] = [
+    KeyCode::Key0,
+    KeyCode::Key1,
+    KeyCode::Key2,
+    KeyCode::Key3,
+    KeyCode::Key4,
+    KeyCode::Key5,
+    KeyCode::Key6,
+    KeyCode::Key7,
+    KeyCode::Key8,
+    KeyCode::Key9,
+];
 
 impl EventHandler for State {
     fn update(&mut self, ctx: &mut Context) -> Result<(), ggez::GameError> {
-        if ctx.keyboard.is_key_just_pressed(ggez::input::keyboard::KeyCode::Space) {
+        let mouse_point = self.get_sim_point(ctx, ctx.mouse.position().into());
+
+        // instantaneous events
+        if ctx.keyboard.is_key_just_pressed(KeyCode::Space) {
             self.environment = State::init_env();
         }
+
+        for (i, &key) in NUMBER_KEYS.iter().enumerate() {
+            if ctx.keyboard.is_key_just_pressed(key) {
+                let radius = 1.5f32.powf(i as f32) * 0.0025;
+                let mass = radius.powi(2);
+                let body = Body {
+                    position: mouse_point,
+                    radius,
+                    mass,
+                    ..Default::default()
+                };
+                self.environment.add(body);
+                break; // cant add two bodies in the same frame or it bugs out :/
+            }
+        }
+
         let substep_timescale = TIME_SCALE / (SUBSTEPS as f32);
         for _ in 0..SUBSTEPS {
-            self.environment
-                .sim_step(ctx.time.delta().as_secs_f32() * substep_timescale);
+            let mut step = self
+                .environment
+                .sim_step_context(ctx.time.delta().as_secs_f32() * substep_timescale);
+
+            step.sim_step();
+
+            // continuous events
+            if ctx.mouse.button_pressed(event::MouseButton::Left) {
+                step.attract_to(0.0001, mouse_point);
+            }
+
+            if ctx.keyboard.is_key_pressed(KeyCode::D) {
+                step.dampen(0.0001);
+            }
         }
         Ok(())
     }
 
     fn draw(&mut self, ctx: &mut Context) -> Result<(), ggez::GameError> {
         let mut canvas = graphics::Canvas::from_frame(ctx, Color::WHITE);
-        let (w, h) = ctx.gfx.drawable_size();
-        let scale_factor = w.min(h);
-        for body in &self.environment.bodies {
-            let mut pos = body.position;
-            pos *= scale_factor;
-            let pos: Vector2<f32> = pos.into();
+        let scale_factor = self.get_scale_factor(ctx);
+        for body in self.environment.bodies() {
+            let pos = self.get_screen_point(ctx, body.position);
             let mesh_builder = &mut MeshBuilder::new();
             let mesh_data = mesh_builder
                 .circle(

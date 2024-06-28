@@ -178,3 +178,9 @@ impl Into<Vector2<f32>> for Vector<2> {
         }
     }
 }
+
+impl From<Vector2<f32>> for Vector<2> {
+    fn from(value: Vector2<f32>) -> Self {
+        Vector([value.x, value.y])
+    }
+}

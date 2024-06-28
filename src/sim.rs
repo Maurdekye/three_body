@@ -45,39 +45,67 @@ impl Body {
 }
 
 pub struct Environment {
-    pub bodies: Vec<Body>,
+    bodies: Vec<Body>,
 }
 
 impl Environment {
-    pub fn sim_step(&mut self, delta_time: f32) -> Vec<Vector<2>> {
+    pub fn new(bodies: Vec<Body>) -> Self {
+        Self { bodies }
+    }
+
+    pub fn sim_step_context(&mut self, delta_time: f32) -> EnvironmentSimulator<'_> {
+        EnvironmentSimulator {
+            env: self,
+            delta_time,
+            collisions: Vec::new(),
+        }
+    }
+
+    pub fn bodies(&self) -> &Vec<Body> {
+        &self.bodies
+    }
+
+    pub fn add(&mut self, body: Body) {
+        self.bodies.push(body);
+    }
+}
+
+pub struct EnvironmentSimulator<'a> {
+    env: &'a mut Environment,
+    delta_time: f32,
+    collisions: Vec<Vector<2>>,
+}
+
+impl EnvironmentSimulator<'_> {
+    pub fn sim_step(&mut self) -> &mut Self {
         // gravitation
         let accelerations: Vec<_> = self
+            .env
             .bodies
             .iter()
-            .map(|body| body.total_acceleration(&self))
+            .map(|body| body.total_acceleration(&self.env))
             .collect();
 
-        for (body, accel) in self.bodies.iter_mut().zip(accelerations) {
-            body.velocity += accel * delta_time;
-            body.position += body.velocity * delta_time;
+        for (body, accel) in self.env.bodies.iter_mut().zip(accelerations) {
+            body.velocity += accel * self.delta_time;
+            body.position += body.velocity * self.delta_time;
         }
 
         // collision (thanks gpt)
-        let collisions: Vec<_> = (0..self.bodies.len())
+        let collisions: Vec<_> = (0..self.env.bodies.len())
             .flat_map(|i| {
-                ((i + 1)..self.bodies.len())
+                ((i + 1)..self.env.bodies.len())
                     .filter_map(|j| {
-                        let a = &self.bodies[i];
-                        let b = &self.bodies[j];
+                        let a = &self.env.bodies[i];
+                        let b = &self.env.bodies[j];
                         ((a.position - b.position).len() < a.radius + b.radius).then_some((i, j))
                     })
                     .collect::<Vec<_>>()
             })
             .collect();
 
-        let mut collision_points = Vec::new();
         for (i, j) in collisions {
-            let (a, b) = self.bodies.split_at_mut(j);
+            let (a, b) = self.env.bodies.split_at_mut(j);
             let (a, b) = (&mut a[i], &mut b[0]);
 
             let delta = a.position - b.position;
@@ -99,10 +127,26 @@ impl Environment {
             let collision_point = delta * (b.radius / (a.radius + b.radius)) + b.position;
             a.position = collision_point + normal * a.radius;
             b.position = collision_point - normal * b.radius;
-            collision_points.push(collision_point);
+            self.collisions.push(collision_point);
         }
-        
-        collision_points
+
+        self
+    }
+
+    pub fn attract_to(&mut self, force: f32, position: Vector<2>) {
+        for body in self.env.bodies.iter_mut() {
+            let delta = position - body.position;
+            let delta_norm = delta.normalized();
+            let strength = (force * self.delta_time);// / body.mass;
+            body.velocity += delta_norm * strength;
+        }
+    }
+
+    pub fn dampen(&mut self, force: f32) {
+        for body in self.env.bodies.iter_mut() {
+            let strength = (force * self.delta_time);// / body.mass;
+            body.velocity -= body.velocity.normalized() * strength;
+        }
     }
 }
 
